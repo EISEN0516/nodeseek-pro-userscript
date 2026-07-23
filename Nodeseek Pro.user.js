@@ -2,7 +2,7 @@
 // @name         Nodeseek Pro
 // @description  增强 NodeSeek/DeepFlood 论坛体验：自动签到、楼中楼、抽奖提醒、下拉加载、快速评论、内容过滤、等级标记、浏览历史、图片预览及响应式设置面板。
 // @namespace    http://www.nodeseek.com/
-// @version      1.0.8-lottery.7
+// @version      1.0.8-lottery.8
 // @homepageURL   https://github.com/EISEN0516/nodeseek-pro-userscript
 // @supportURL    https://github.com/EISEN0516/nodeseek-pro-userscript/issues
 // @updateURL     https://raw.githubusercontent.com/EISEN0516/nodeseek-pro-userscript/main/Nodeseek%20Pro.user.js
@@ -5344,6 +5344,29 @@
                     }
                 }
 
+                async function fetchFirstPageLotteryDetails(postUrl) {
+                    const firstPageUrl = canonicalPostUrl(postUrl);
+                    const postId = postIdFromUrl(firstPageUrl);
+                    if (!postId) return null;
+                    const response = await gmRequest({ method: "GET", url: firstPageUrl });
+                    const html = String(response.responseText || response.response || "");
+                    if (!html) throw new Error("帖子第一页内容为空");
+                    const doc = new DOMParser().parseFromString(html, "text/html");
+                    const root = doc.querySelector(".nsk-post") || doc.querySelector("article.post-content") || doc.body;
+                    const title = root?.querySelector("h1,.post-content-title,.post-title>a,.post-title")?.textContent?.trim()
+                        || doc.title.replace(/\s*[-|]\s*NodeSeek.*$/i, "").trim()
+                        || "抽奖活动";
+                    const luckyUrl = extractLuckyUrl(html);
+                    return {
+                        postId,
+                        postUrl: firstPageUrl,
+                        title,
+                        luckyUrl,
+                        drawTime: luckyUrl ? getDrawTime(luckyUrl) : null,
+                        ...extractParticipationRequirements(root?.textContent || "")
+                    };
+                }
+
                 const normalizeLotteryText = value => String(value || "")
                     .replace(/\u00a0/g, " ")
                     .replace(/[ \t]+/g, " ")
@@ -5843,8 +5866,26 @@
 
                 async function addCurrentLottery() {
                     if (!ctx.isPost) return statusMessage("warning", "请先打开一个帖子");
-                    const details = detailsForCurrentPost();
+                    let details = detailsForCurrentPost();
                     if (!details.postId) return statusMessage("warning", "无法识别当前帖子");
+                    try {
+                        const fetched = await fetchFirstPageLotteryDetails(details.postUrl);
+                        if (fetched) {
+                            details = {
+                                ...details,
+                                ...fetched,
+                                commentRequired: !!details.commentRequired || !!fetched.commentRequired,
+                                commentPhrase: fetched.commentPhrase || details.commentPhrase || null,
+                                requirements: Object.keys(PARTICIPATION_LABELS).reduce((result, key) => {
+                                    result[key] = !!details.requirements?.[key] || !!fetched.requirements?.[key];
+                                    return result;
+                                }, {}),
+                                requirementMode: details.requirementMode === "any" || fetched.requirementMode === "any" ? "any" : "all"
+                            };
+                        }
+                    } catch (error) {
+                        ctx.env.warn("获取抽奖帖第一页失败，使用当前页面信息", error);
+                    }
                     const existed = !!findReminder(details.postId);
                     saveLotteryDetails(details);
                     if (existed) return statusMessage("warning", "该抽奖已经添加");
@@ -6320,7 +6361,7 @@
                     panel.setAttribute("aria-label", "抽奖提醒");
                     panel.innerHTML =
                         '<div class="nsx-lottery-panel-header">' +
-                            '<strong>抽奖提醒</strong>' +
+                            '<strong>抽奖提醒管理器</strong>' +
                             '<button type="button" class="nsx-lottery-icon-btn" data-action="close" title="关闭" aria-label="关闭">×</button>' +
                         '</div>' +
                         '<div class="nsx-lottery-toolbar">' +
