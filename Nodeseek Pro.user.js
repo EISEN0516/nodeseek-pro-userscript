@@ -2,7 +2,7 @@
 // @name         Nodeseek Pro
 // @description  增强 NodeSeek/DeepFlood 论坛体验：自动签到、楼中楼、抽奖提醒、下拉加载、快速评论、内容过滤、等级标记、浏览历史、图片预览及响应式设置面板。
 // @namespace    http://www.nodeseek.com/
-// @version      1.0.8-lottery.6
+// @version      1.0.8-lottery.7
 // @homepageURL   https://github.com/EISEN0516/nodeseek-pro-userscript
 // @supportURL    https://github.com/EISEN0516/nodeseek-pro-userscript/issues
 // @updateURL     https://raw.githubusercontent.com/EISEN0516/nodeseek-pro-userscript/main/Nodeseek%20Pro.user.js
@@ -5649,7 +5649,7 @@
                     await sendAllNotifications(
                         subject,
                         reminder.title + "\n\n中奖名单:\n" + result.winners.join("\n"),
-                        reminder.luckyUrl
+                        reminder.postUrl || reminder.luckyUrl
                     );
                 }
 
@@ -5671,7 +5671,7 @@
                             resultJobs.push(sendAllNotifications(
                                 "抽奖即将开奖",
                                 reminder.title + "\n将在 " + Math.max(1, Math.ceil(remaining / 60000)) + " 分钟内开奖",
-                                reminder.luckyUrl || reminder.postUrl
+                                reminder.postUrl || reminder.luckyUrl
                             ));
                         }
                         if (remaining <= 0 && !reminder.drawNotified) {
@@ -5680,7 +5680,7 @@
                             resultJobs.push(sendAllNotifications(
                                 "抽奖已开奖",
                                 reminder.title + "\n已经开奖，请打开抽奖页查看结果",
-                                reminder.luckyUrl || reminder.postUrl
+                                reminder.postUrl || reminder.luckyUrl
                             ));
                         }
                     });
@@ -6298,10 +6298,14 @@
                     test.addEventListener("click", async () => {
                         saveNotifyConfig(collect());
                         test.disabled = true;
+                        const testReminder = getReminders().find(value => value.postUrl);
+                        const testUrl = (ctx.isPost ? canonicalPostUrl(location.href) : null)
+                            || testReminder?.postUrl
+                            || location.origin + "/";
                         await sendAllNotifications(
                             "NodeSeek 抽奖提醒测试",
                             "通知通道测试\n时间: " + new Date().toLocaleString("zh-CN"),
-                            location.origin + "/"
+                            testUrl
                         );
                         test.disabled = false;
                         statusMessage("success", "测试通知已发送");
