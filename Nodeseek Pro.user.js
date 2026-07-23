@@ -2,7 +2,7 @@
 // @name         Nodeseek Pro
 // @description  增强 NodeSeek/DeepFlood 论坛体验：自动签到、楼中楼、抽奖提醒、下拉加载、快速评论、内容过滤、等级标记、浏览历史、图片预览及响应式设置面板。
 // @namespace    http://www.nodeseek.com/
-// @version      1.0.8-lottery.10
+// @version      1.0.8-lottery.11
 // @homepageURL   https://github.com/EISEN0516/nodeseek-pro-userscript
 // @supportURL    https://github.com/EISEN0516/nodeseek-pro-userscript/issues
 // @updateURL     https://raw.githubusercontent.com/EISEN0516/nodeseek-pro-userscript/main/Nodeseek%20Pro.user.js
@@ -5044,6 +5044,9 @@
             match: ctx => ctx.site?.code === "ns",
             init(ctx) {
                 const REMINDERS_KEY = "lottery_reminders";
+                const PARTICIPATION_HISTORY_KEY = "lottery_participation_history";
+                const PARTICIPATION_SYNC_INTERVAL = 6 * 60 * 60 * 1000;
+                const PARTICIPATION_SYNC_PAGES = 3;
                 const NOTIFY_KEY = "notify_config";
                 const STYLE_ID = "nsx-lottery-style";
                 const PANEL_ID = "nsx-lottery-panel";
@@ -5071,6 +5074,8 @@
                 let menuIds = [];
                 let participationObserver = null;
                 let participationClickHandler = null;
+                let participationHistoryCache = null;
+                let participationSyncing = null;
                 const resultRequesting = new Set();
                 const refreshParticipationSoon = debounce(() => {
                     if (active) refreshLotteryIndicators();
@@ -5128,6 +5133,170 @@
                     return result;
                 };
                 const saveNotifyConfig = config => GM_setValue(NOTIFY_KEY, config);
+                const currentUserIdentity = () => {
+                    const user = ctx.user || {};
+                    return {
+                        userId: String(ctx.uid || "").trim(),
+                        username: String(user.username || user.user_name || user.member_name || user.nickname || user.name || "").trim()
+                    };
+                };
+                const emptyParticipationHistory = () => ({ version: 1, lastKnownUserId: "", users: {} });
+                const normalizeParticipationHistory = saved => {
+                    const history = saved && typeof saved === "object" && !Array.isArray(saved)
+                        ? saved
+                        : emptyParticipationHistory();
+                    history.version = 1;
+                    history.lastKnownUserId = String(history.lastKnownUserId || "");
+                    if (!history.users || typeof history.users !== "object" || Array.isArray(history.users)) history.users = {};
+                    return history;
+                };
+                const getParticipationHistory = () => {
+                    if (!participationHistoryCache) {
+                        participationHistoryCache = normalizeParticipationHistory(GM_getValue(PARTICIPATION_HISTORY_KEY, null));
+                    }
+                    return participationHistoryCache;
+                };
+                const saveParticipationHistory = history => {
+                    participationHistoryCache = normalizeParticipationHistory(history);
+                    GM_setValue(PARTICIPATION_HISTORY_KEY, participationHistoryCache);
+                };
+                const participationProfile = (history, create = false) => {
+                    const identity = currentUserIdentity();
+                    const userId = identity.userId || history.lastKnownUserId;
+                    if (!userId) return null;
+                    if (identity.userId) history.lastKnownUserId = identity.userId;
+                    if (!history.users[userId] && create) {
+                        history.users[userId] = { username: identity.username, records: {}, sync: {} };
+                    }
+                    const profile = history.users[userId] || null;
+                    if (!profile) return null;
+                    if (!profile.records || typeof profile.records !== "object" || Array.isArray(profile.records)) profile.records = {};
+                    if (!profile.sync || typeof profile.sync !== "object" || Array.isArray(profile.sync)) profile.sync = {};
+                    if (identity.username) profile.username = identity.username;
+                    return { userId, identity, profile };
+                };
+                const getParticipationRecord = postId => {
+                    const history = getParticipationHistory();
+                    const selected = participationProfile(history, false);
+                    return selected?.profile.records?.[String(postId)] || null;
+                };
+                const sameStringArray = (left, right) => left.length === right.length && left.every((value, index) => value === right[index]);
+                function confirmParticipation(details, evidence, source = "page") {
+                    const postId = String(details?.postId || postIdFromUrl(details?.postUrl) || "");
+                    const confirmedEvidence = [...new Set((Array.isArray(evidence) ? evidence : [evidence])
+                        .map(value => String(value || "").trim()).filter(value => PARTICIPATION_LABELS[value]))].sort();
+                    if (!postId || !confirmedEvidence.length) return null;
+                    const history = getParticipationHistory();
+                    const selected = participationProfile(history, true);
+                    if (!selected) return null;
+                    const current = selected.profile.records[postId] || null;
+                    const mergedEvidence = [...new Set([...(current?.evidence || []), ...confirmedEvidence])].sort();
+                    const postUrl = details?.postUrl ? canonicalPostUrl(details.postUrl) : location.origin + "/post-" + postId + "-1";
+                    const title = String(details?.title || current?.title || "抽奖活动").trim();
+                    const next = {
+                        postId,
+                        postUrl,
+                        title,
+                        status: "joined",
+                        confirmedAt: current?.confirmedAt || Date.now(),
+                        evidence: mergedEvidence,
+                        userId: selected.userId,
+                        username: selected.identity.username || selected.profile.username || current?.username || "",
+                        source: current?.source || source
+                    };
+                    const unchanged = current
+                        && current.status === next.status
+                        && current.postUrl === next.postUrl
+                        && current.title === next.title
+                        && current.username === next.username
+                        && sameStringArray(current.evidence || [], next.evidence);
+                    if (unchanged) return current;
+                    selected.profile.records[postId] = next;
+                    saveParticipationHistory(history);
+                    return next;
+                }
+                const delay = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
+                function mergeCommentHistory(comments) {
+                    if (!Array.isArray(comments) || !comments.length) return false;
+                    const history = getParticipationHistory();
+                    const selected = participationProfile(history, true);
+                    if (!selected) return false;
+                    let changed = false;
+                    comments.forEach(comment => {
+                        const postId = String(comment?.post_id || comment?.postId || "");
+                        if (!/^\d+$/.test(postId)) return;
+                        const current = selected.profile.records[postId] || null;
+                        const evidence = [...new Set([...(current?.evidence || []), "comment"])].sort();
+                        const title = String(comment?.title || current?.title || "抽奖活动").trim();
+                        const postUrl = location.origin + "/post-" + postId + "-1";
+                        if (current
+                            && current.status === "joined"
+                            && current.postUrl === postUrl
+                            && current.title === title
+                            && sameStringArray(current.evidence || [], evidence)) return;
+                        selected.profile.records[postId] = {
+                            postId,
+                            postUrl,
+                            title,
+                            status: "joined",
+                            confirmedAt: current?.confirmedAt || Date.now(),
+                            evidence,
+                            userId: selected.userId,
+                            username: selected.identity.username || selected.profile.username || current?.username || "",
+                            source: current?.source || "comment-history"
+                        };
+                        changed = true;
+                    });
+                    if (changed) saveParticipationHistory(history);
+                    return changed;
+                }
+                async function syncParticipationHistory() {
+                    if (!ctx.loggedIn || !ctx.uid) return false;
+                    if (participationSyncing) return participationSyncing;
+                    participationSyncing = (async () => {
+                        const history = getParticipationHistory();
+                        const selected = participationProfile(history, true);
+                        if (!selected) return false;
+                        const now = Date.now();
+                        const lastAttempt = Number(selected.profile.sync.lastAttemptAt) || 0;
+                        if (now - lastAttempt < PARTICIPATION_SYNC_INTERVAL) return false;
+                        selected.profile.sync.lastAttemptAt = now;
+                        saveParticipationHistory(history);
+
+                        let changed = false;
+                        let cursor = Math.max(2, Number(selected.profile.sync.nextPage) || 2);
+                        const pages = [1, ...Array.from({ length: PARTICIPATION_SYNC_PAGES - 1 }, (_, index) => cursor + index)];
+                        for (let index = 0; index < pages.length; index += 1) {
+                            const page = pages[index];
+                            try {
+                                const response = await gmRequest({
+                                    method: "GET",
+                                    url: location.origin + "/api/content/list-comments?uid=" + encodeURIComponent(selected.userId) + "&page=" + page
+                                });
+                                const payload = JSON.parse(String(response.responseText || response.response || "{}"));
+                                if (payload?.success === false || !Array.isArray(payload?.comments)) break;
+                                changed = mergeCommentHistory(payload.comments) || changed;
+                                if (page > 1) cursor = payload.comments.length < 15 ? 2 : page + 1;
+                                if (payload.comments.length < 15 && page > 1) break;
+                            } catch (error) {
+                                ctx.env.warn("同步评论参与历史失败", error);
+                                break;
+                            }
+                            if (index < pages.length - 1) await delay(650);
+                        }
+                        const latestHistory = getParticipationHistory();
+                        const latestSelected = participationProfile(latestHistory, true);
+                        if (latestSelected) {
+                            latestSelected.profile.sync.lastSyncedAt = Date.now();
+                            latestSelected.profile.sync.nextPage = cursor;
+                            saveParticipationHistory(latestHistory);
+                        }
+                        return changed;
+                    })().finally(() => {
+                        participationSyncing = null;
+                    });
+                    return participationSyncing;
+                }
                 const statusMessage = (type, text) => {
                     if (ctx.ui?.[type]) ctx.ui[type](text);
                     else window.alert(text);
@@ -5583,21 +5752,27 @@
                 }
 
                 function getParticipationState(details) {
+                    const historyRecord = getParticipationRecord(details.postId);
+                    if (historyRecord?.status === "joined") {
+                        return { kind: "joined", reminder: findReminder(details.postId) || null, historyRecord };
+                    }
                     const reminder = findReminder(details.postId);
-                    if (!reminder) return { kind: "unjoined", reminder: null };
                     const mergedDetails = {
-                        ...reminder,
+                        ...(reminder || {}),
                         ...details,
                         requirements: {
                             ...Object.keys(PARTICIPATION_LABELS).reduce((result, key) => {
-                                result[key] = !!reminder.requirements?.[key] || !!details.requirements?.[key];
+                                result[key] = !!reminder?.requirements?.[key] || !!details.requirements?.[key];
                                 return result;
                             }, {})
                         }
                     };
                     const info = getRequirementInfo(mergedDetails);
-                    if (!info.keys.length) return { kind: "unjoined", reminder, info };
-                    if (info.satisfied) return { kind: "joined", reminder, info };
+                    const evidence = Object.keys(info.checks).filter(key => info.checks[key]);
+                    if (info.satisfied || info.checks.comment || (!info.keys.length && evidence.length)) {
+                        const record = confirmParticipation(mergedDetails, evidence, info.checks.comment ? "comment-page" : "action-page");
+                        return { kind: "joined", reminder, info, historyRecord: record };
+                    }
                     return { kind: "unjoined", reminder, info };
                 }
 
@@ -5985,7 +6160,7 @@
                     }
                     existingTags?.delete(tag);
                     tag.dataset.state = state.kind;
-                    const tagText = state.kind === "joined" ? "已参加" : "未参加";
+                    const tagText = state.kind === "joined" ? "抽奖已参加" : "抽奖未参加";
                     tag.textContent = tagText;
                     tag.title = tagText;
                 }
@@ -6416,6 +6591,9 @@
                     registerMenus();
                     markParticipated();
                     startParticipationMonitor();
+                    syncParticipationHistory().then(changed => {
+                        if (changed && active) refreshLotteryIndicators();
+                    });
                     checkReminders();
                     processCurrentLuckyPage();
                     startTimer();
