@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Nodeseek Pro
+// @name         Nodeseek Max-iSen
 // @description  增强 NodeSeek/DeepFlood 论坛体验：自动签到、楼中楼、抽奖提醒、下拉加载、快速评论、内容过滤、等级标记、浏览历史、图片预览及响应式设置面板。
 // @namespace    http://www.nodeseek.com/
-// @version      1.0.8-lottery.11
+// @version      1.0.8-lottery.12
 // @homepageURL   https://github.com/EISEN0516/nodeseek-pro-userscript
 // @supportURL    https://github.com/EISEN0516/nodeseek-pro-userscript/issues
 // @updateURL     https://raw.githubusercontent.com/EISEN0516/nodeseek-pro-userscript/main/Nodeseek%20Pro.user.js
@@ -870,7 +870,7 @@
 
         const wrap = document.createElement("span");
         wrap.className = "callout-inserter-wrapper toolbar-item";
-        wrap.title = "Callout - Nodeseek Pro";
+        wrap.title = "Callout - Nodeseek Max-iSen";
         setV(wrap);
 
         const btn = document.createElement("span");
@@ -1795,7 +1795,7 @@
                 const w = window.layui.device().mobile ? "100%" : "620px";
                 ctx.ui.layer.open({
                     type: 1, offset: "r", anim: "slideLeft", area: [w, "100%"], scrollbar: false, shade: 0.1, shadeClose: false,
-                    btn: ["保存设置", "取消"], btnAlign: "r", title: "Nodeseek Pro 设置", id: "setting-layer-direction-r", content: cont.outerHTML,
+                    btn: ["保存设置", "取消"], btnAlign: "r", title: "Nodeseek Max-iSen 设置", id: "setting-layer-direction-r", content: cont.outerHTML,
                     success: ly => {
                         const r = ly?.[0] || ly;
                         try { window.layui.form?.render(); } catch { }
@@ -1999,7 +1999,7 @@
                 wrap.className = "nsx-quick-reply-wrap toolbar-item";
                 const btn = document.createElement("span");
                 btn.className = "nsx-quick-reply-btn i-icon";
-                btn.title = "快捷回复 - Nodeseek Pro";
+                btn.title = "快捷回复 - Nodeseek Max-iSen";
                 btn.textContent = "快捷回复";
                 const menu = document.createElement("div");
                 menu.className = "nsx-quick-reply-menu";
@@ -2531,7 +2531,7 @@
 
             const btn = document.createElement("span");
             btn.className = "nsx-ai-reply-btn i-icon";
-            btn.title = "AI美化 - Nodeseek Pro";
+            btn.title = "AI美化 - Nodeseek Max-iSen";
             btn.innerHTML = `<svg viewBox="0 0 48 48" fill="none"><path d="M24 4C13 4 4 13 4 24s9 20 20 20 20-9 20-20S35 4 24 4z" stroke="currentColor" stroke-width="4"/><path d="M24 14v10m0 4v6" stroke="currentColor" stroke-width="4" stroke-linecap="round"/></svg>AI美化`;
             setV(btn);
 

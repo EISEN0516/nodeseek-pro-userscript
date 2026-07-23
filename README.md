@@ -1,4 +1,4 @@
-# Nodeseek Pro
+# Nodeseek Max-iSen
 
 用于增强 NodeSeek/DeepFlood 论坛体验的 Tampermonkey 用户脚本。
 
