@@ -2,7 +2,7 @@
 // @name         Nodeseek Pro
 // @description  增强 NodeSeek/DeepFlood 论坛体验：自动签到、楼中楼、抽奖提醒、下拉加载、快速评论、内容过滤、等级标记、浏览历史、图片预览及响应式设置面板。
 // @namespace    http://www.nodeseek.com/
-// @version      1.0.8-lottery.8
+// @version      1.0.8-lottery.9
 // @homepageURL   https://github.com/EISEN0516/nodeseek-pro-userscript
 // @supportURL    https://github.com/EISEN0516/nodeseek-pro-userscript/issues
 // @updateURL     https://raw.githubusercontent.com/EISEN0516/nodeseek-pro-userscript/main/Nodeseek%20Pro.user.js
@@ -5093,9 +5093,32 @@
                     const postId = postIdFromUrl(value);
                     return postId ? location.origin + "/post-" + postId + "-1" : String(value || "");
                 };
+                const postUrlFromLucky = value => {
+                    try {
+                        const parsed = new URL(value, location.origin);
+                        if (!/(^|\.)nodeseek\.com$/i.test(parsed.hostname)) return null;
+                        const postId = parsed.searchParams.get("post");
+                        return /^\d+$/.test(String(postId || ""))
+                            ? location.origin + "/post-" + postId + "-1"
+                            : null;
+                    } catch {
+                        return null;
+                    }
+                };
+                const normalizeReminder = reminder => {
+                    if (!reminder || typeof reminder !== "object") return reminder;
+                    const currentPostUrl = postIdFromUrl(reminder.postUrl)
+                        ? canonicalPostUrl(reminder.postUrl)
+                        : postUrlFromLucky(reminder.luckyUrl);
+                    if (!currentPostUrl || currentPostUrl === reminder.postUrl) return reminder;
+                    return { ...reminder, postUrl: currentPostUrl };
+                };
                 const getReminders = () => {
                     const saved = GM_getValue(REMINDERS_KEY, []);
-                    return Array.isArray(saved) ? saved : [];
+                    if (!Array.isArray(saved)) return [];
+                    const normalized = saved.map(normalizeReminder);
+                    if (normalized.some((value, index) => value !== saved[index])) GM_setValue(REMINDERS_KEY, normalized);
+                    return normalized;
                 };
                 const saveReminders = reminders => GM_setValue(REMINDERS_KEY, reminders);
                 const getNotifyConfig = () => {
