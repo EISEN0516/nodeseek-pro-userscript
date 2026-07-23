@@ -2,7 +2,7 @@
 // @name         Nodeseek Pro
 // @description  增强 NodeSeek/DeepFlood 论坛体验：自动签到、楼中楼、抽奖提醒、下拉加载、快速评论、内容过滤、等级标记、浏览历史、图片预览及响应式设置面板。
 // @namespace    http://www.nodeseek.com/
-// @version      1.0.8-lottery.9
+// @version      1.0.8-lottery.10
 // @homepageURL   https://github.com/EISEN0516/nodeseek-pro-userscript
 // @supportURL    https://github.com/EISEN0516/nodeseek-pro-userscript/issues
 // @updateURL     https://raw.githubusercontent.com/EISEN0516/nodeseek-pro-userscript/main/Nodeseek%20Pro.user.js
@@ -5025,7 +5025,6 @@
                 lottery_reminder: {
                     enabled: true,
                     auto_detect: true,
-                    one_click_comment: true,
                     near_minutes: 1,
                     check_seconds: 30
                 }
@@ -5037,7 +5036,6 @@
                     cols: 2,
                     fields: {
                         auto_detect: { type: "SWITCH", label: "自动识别抽奖贴" },
-                        one_click_comment: { type: "SWITCH", label: "启用题词一键评论" },
                         near_minutes: { type: "NUMBER", label: "提前提醒（分钟）" },
                         check_seconds: { type: "NUMBER", label: "检查间隔（秒）" }
                     }
@@ -5050,7 +5048,6 @@
                 const STYLE_ID = "nsx-lottery-style";
                 const PANEL_ID = "nsx-lottery-panel";
                 const MODAL_ID = "nsx-lottery-notify-mask";
-                const PARTICIPATION_MODAL_ID = "nsx-lottery-participation-mask";
                 const DEFAULT_NOTIFY = {
                     telegram: { enabled: false, botToken: "", chatId: "" },
                     email: {
@@ -5063,7 +5060,7 @@
                     feishu: { enabled: false, webhook: "", secret: "" },
                     wecom: { enabled: false, webhook: "" },
                     discord: { enabled: false, webhook: "", username: "NodeSeek抽奖助手" },
-                    autoResult: { enabled: false, username: "" }
+                    autoResult: { enabled: true, username: "" }
                 };
 
                 let active = false;
@@ -5074,6 +5071,7 @@
                 let menuIds = [];
                 let participationObserver = null;
                 let participationClickHandler = null;
+                const resultRequesting = new Set();
                 const refreshParticipationSoon = debounce(() => {
                     if (active) refreshLotteryIndicators();
                 }, 260);
@@ -5395,34 +5393,14 @@
                     .replace(/[ \t]+/g, " ")
                     .replace(/\r/g, "");
 
-                function cleanCommentPhrase(value) {
-                    let phrase = String(value || "").trim()
-                        .replace(/^[\s“”"「」『』《》【】]+|[\s“”"「」『』《》【】]+$/g, "")
-                        .replace(/\s*(?:即可|就能|便可|可以)?(?:参加|参与)(?:本次)?抽奖.*$/i, "")
-                        .trim();
-                    if (!phrase || phrase.length > 80) return null;
-                    if (/^(?:任意|任意内容|随便|评论|留言|回复|参加|参与|抽奖|参加抽奖|参与抽奖|即可)$/i.test(phrase)) return null;
-                    return phrase;
-                }
-
                 function extractCommentRequirement(value) {
                     const text = normalizeLotteryText(value);
-                    const patterns = [
-                        /(?:专属)?(?:题词|口令|关键词|暗号)\s*(?:是|为|填写|回复|评论)?\s*[：:]\s*[“"「『《【]?([^\n。；;！？!?]{1,80})/i,
-                        /(?:评论|留言|回复)(?:内容)?\s*(?:是|为)?\s*[：:]\s*[“"「『《【]?([^\n。；;！？!?]{1,80})/i,
-                        /(?:评论|留言|回复)[^。；;！？!?\n]{0,24}?[“"「『《【]([^”"」』》】\n]{1,80})[”"」』》】]/i
-                    ];
-                    let commentPhrase = null;
-                    for (const pattern of patterns) {
-                        commentPhrase = cleanCommentPhrase(text.match(pattern)?.[1]);
-                        if (commentPhrase) break;
-                    }
                     const explicitlyNoComment = /(?:无需|无须|不需|不需要|不用|不必)(?:评论|留言|回复)/i.test(text);
-                    const commentRequired = !!commentPhrase || (!explicitlyNoComment && [
+                    const commentRequired = !explicitlyNoComment && [
                         /(?:必须|需要|需|请|参与方式.{0,8})?(?:评论|留言|回复)[^。；;！？!?\n]{0,36}(?:参加|参与|抽奖|资格)/i,
                         /(?:参加|参与|抽奖|资格)[^。；;！？!?\n]{0,36}(?:评论|留言|回复)/i
-                    ].some(pattern => pattern.test(text)));
-                    return { commentRequired, commentPhrase };
+                    ].some(pattern => pattern.test(text));
+                    return { commentRequired };
                 }
 
                 const PARTICIPATION_LABELS = {
@@ -5513,8 +5491,7 @@
                         const href = authorLink?.getAttribute?.("href") || "";
                         const sameUid = ctx.uid && new RegExp("/space/" + String(ctx.uid) + "(?:/|$|#)").test(href);
                         if (!sameUid && (!author || !names.has(author))) return false;
-                        if (!details.commentPhrase) return true;
-                        return normalizeLotteryText(comment.querySelector(".post-content")?.textContent).includes(details.commentPhrase);
+                        return true;
                     });
                 }
 
@@ -5605,13 +5582,6 @@
                     return { requirements, keys, checks, mode, satisfied };
                 }
 
-                function requirementText(info, missingOnly = false) {
-                    const keys = missingOnly ? info.keys.filter(key => !info.checks[key]) : info.keys;
-                    if (!keys.length) return "";
-                    const labels = keys.map(key => PARTICIPATION_LABELS[key]);
-                    return labels.join(info.mode === "any" ? " 或 " : " + ");
-                }
-
                 function getParticipationState(details) {
                     const reminder = findReminder(details.postId);
                     if (!reminder) return { kind: "unjoined", reminder: null };
@@ -5626,15 +5596,9 @@
                         }
                     };
                     const info = getRequirementInfo(mergedDetails);
-                    if (!info.keys.length) return { kind: "needs-confirmation", reminder, info };
+                    if (!info.keys.length) return { kind: "unjoined", reminder, info };
                     if (info.satisfied) return { kind: "joined", reminder, info };
-                    const missing = requirementText(info, true);
-                    return {
-                        kind: info.keys.length === 1 && info.keys[0] === "comment" ? "needs-comment" : "needs-action",
-                        reminder,
-                        info,
-                        missing
-                    };
+                    return { kind: "unjoined", reminder, info };
                 }
 
                 function parseLotteryResult(html, myUsername) {
@@ -5644,6 +5608,8 @@
                     const names = [];
                     const seen = new Set();
                     roots.forEach(root => root?.querySelectorAll('a[href*="/space/"],a[href*="/user/"]').forEach(link => {
+                        const rowText = link.closest(".member-name,.rank-row")?.textContent || link.parentElement?.textContent || "";
+                        if (/(?:重复|duplicate)/i.test(rowText)) return;
                         const name = link.textContent.trim();
                         const key = name.toLowerCase();
                         if (name && !seen.has(key)) {
@@ -5663,10 +5629,59 @@
                         });
                     }
                     const mine = String(myUsername || "").trim().toLowerCase();
+                    const bodyText = normalizeLotteryText(doc.body?.textContent || "");
+                    const explicitLost = /(?:未中奖|没有中奖|很遗憾|遗憾地?未能中奖|本次未中)/i.test(bodyText);
+                    const myStatus = mine
+                        ? (names.some(name => name.toLowerCase() === mine) ? "won" : explicitLost || names.length ? "lost" : "unknown")
+                        : explicitLost ? "lost" : "unknown";
                     return {
                         winners: names,
-                        myStatus: mine ? (names.some(name => name.toLowerCase() === mine) ? "won" : "lost") : "unknown"
+                        myStatus,
+                        ready: names.length > 0 || explicitLost
                     };
+                }
+
+                function resolveAutoResultUsername(config) {
+                    const configured = String(config?.username || "").trim();
+                    if (configured) return configured;
+                    const user = ctx.user || {};
+                    return String(user.username || user.user_name || user.member_name || user.nickname || "").trim();
+                }
+
+                async function notifyLotteryResult(reminder, config, html = null) {
+                    if (!config?.enabled || !reminder?.luckyUrl || reminder.resultNotified) return false;
+                    const key = reminder.postUrl || reminder.luckyUrl;
+                    if (resultRequesting.has(key)) return false;
+                    resultRequesting.add(key);
+                    try {
+                        const source = html || String((await gmRequest({ method: "GET", url: reminder.luckyUrl })).responseText || "");
+                        if (!source) return false;
+                        const username = resolveAutoResultUsername(config);
+                        const result = parseLotteryResult(source, username);
+                        if (!result.ready) return false;
+                        const subject = result.myStatus === "won"
+                            ? "恭喜中奖！"
+                            : result.myStatus === "lost" ? "未中奖" : "抽奖已开奖";
+                        const statusText = result.myStatus === "won"
+                            ? "结果：已中奖"
+                            : result.myStatus === "lost"
+                                ? "结果：未中奖"
+                                : "结果：已开奖（请在通知配置中填写用户名）";
+                        reminder.resultNotified = true;
+                        reminder.resultStatus = result.myStatus;
+                        reminder.resultCheckedAt = Date.now();
+                        await sendAllNotifications(
+                            subject,
+                            reminder.title + "\n" + statusText + "\n\n中奖名单：\n" + (result.winners.length ? result.winners.join("\n") : "页面未提供中奖名单"),
+                            reminder.postUrl || reminder.luckyUrl
+                        );
+                        return true;
+                    } catch (error) {
+                        ctx.env.warn("自动识别抽奖结果失败", error);
+                        return false;
+                    } finally {
+                        resultRequesting.delete(key);
+                    }
                 }
 
                 async function processCurrentLuckyPage() {
@@ -5685,23 +5700,16 @@
                         }
                     });
                     if (!reminder || Number(reminder.drawTime) > Date.now()) return;
-                    const result = parseLotteryResult(document.documentElement.outerHTML, auto.username);
-                    if (!result.winners.length) return;
-                    let subject = "抽奖已开奖";
-                    if (result.myStatus === "won") subject = "恭喜中奖！";
-                    if (result.myStatus === "lost") subject = "未中奖";
-                    reminder.resultNotified = true;
-                    saveReminders(reminders);
-                    await sendAllNotifications(
-                        subject,
-                        reminder.title + "\n\n中奖名单:\n" + result.winners.join("\n"),
-                        reminder.postUrl || reminder.luckyUrl
-                    );
+                    if (await notifyLotteryResult(reminder, auto, document.documentElement.outerHTML)) {
+                        saveReminders(reminders);
+                        renderList();
+                    }
                 }
 
                 async function checkReminders() {
                     if (!active) return;
                     const reminders = getReminders();
+                    const auto = getNotifyConfig().autoResult;
                     const now = Date.now();
                     const nearMs = Math.max(0, Number(ctx.store.get("lottery_reminder.near_minutes", 1)) || 1) * 60000;
                     let changed = false;
@@ -5723,18 +5731,25 @@
                         if (remaining <= 0 && !reminder.drawNotified) {
                             reminder.drawNotified = true;
                             changed = true;
-                            resultJobs.push(sendAllNotifications(
-                                "抽奖已开奖",
-                                reminder.title + "\n已经开奖，请打开抽奖页查看结果",
-                                reminder.postUrl || reminder.luckyUrl
-                            ));
+                            if (!auto.enabled || !reminder.luckyUrl) {
+                                resultJobs.push(sendAllNotifications(
+                                    "抽奖已开奖",
+                                    reminder.title + "\n已经开奖，请打开抽奖页查看结果",
+                                    reminder.postUrl || reminder.luckyUrl
+                                ));
+                            }
+                        }
+                        if (remaining <= 0 && auto.enabled && reminder.luckyUrl && !reminder.resultNotified) {
+                            resultJobs.push(notifyLotteryResult(reminder, auto).then(notified => {
+                                if (notified) changed = true;
+                            }));
                         }
                     });
+                    await Promise.allSettled(resultJobs);
                     if (changed) {
                         saveReminders(reminders);
                         renderList();
                     }
-                    await Promise.allSettled(resultJobs);
                 }
 
                 function countdownText(target) {
@@ -5814,8 +5829,7 @@
                             const requirement = document.createElement("div");
                             requirement.className = "nsx-lottery-requirement";
                             const labels = savedKeys.map(key => PARTICIPATION_LABELS[key]);
-                            requirement.textContent = "参与要求：" + labels.join(reminder.requirementMode === "any" ? " 或 " : " + ")
-                                + (reminder.commentPhrase ? "；题词：“" + reminder.commentPhrase + "”" : "");
+                            requirement.textContent = "参与要求：" + labels.join(reminder.requirementMode === "any" ? " 或 " : " + ");
                             item.appendChild(requirement);
                         }
                         const time = document.createElement("div");
@@ -5845,7 +5859,6 @@
                         title: details.title || current?.title || "抽奖活动",
                         drawTime: details.drawTime || current?.drawTime || null,
                         commentRequired: !!details.commentRequired || !!current?.commentRequired,
-                        commentPhrase: details.commentPhrase || current?.commentPhrase || null,
                         requirements: Object.keys(PARTICIPATION_LABELS).reduce((result, key) => {
                             result[key] = !!details.requirements?.[key]
                                 || !!current?.requirements?.[key]
@@ -5881,7 +5894,6 @@
                         luckyUrl: extractLuckyUrl(document.documentElement.outerHTML),
                         drawTime: null,
                         commentRequired: false,
-                        commentPhrase: null,
                         requirements: { comment: false, like: false, coin: false, favorite: false },
                         requirementMode: "all"
                     };
@@ -5898,7 +5910,6 @@
                                 ...details,
                                 ...fetched,
                                 commentRequired: !!details.commentRequired || !!fetched.commentRequired,
-                                commentPhrase: fetched.commentPhrase || details.commentPhrase || null,
                                 requirements: Object.keys(PARTICIPATION_LABELS).reduce((result, key) => {
                                     result[key] = !!details.requirements?.[key] || !!fetched.requirements?.[key];
                                     return result;
@@ -5915,9 +5926,6 @@
                     if (!details.luckyUrl) statusMessage("warning", "已添加，但未找到抽奖链接");
                     else if (!details.drawTime) statusMessage("warning", "已添加，但未识别到开奖时间");
                     else statusMessage("success", "抽奖已添加");
-                    if (getRequirementInfo(details).keys.length && getParticipationState(details).kind !== "joined") {
-                        openParticipationModal(details, true);
-                    }
                 }
 
                 function findPostRoot(element) {
@@ -5935,123 +5943,9 @@
                     return [...roots];
                 }
 
-                function setEditorText(text) {
-                    const editor = document.querySelector(".md-editor");
-                    if (!editor) return false;
-                    const cm = editor.querySelector(".CodeMirror")?.CodeMirror;
-                    if (cm) {
-                        cm.getDoc().setValue(text);
-                        cm.focus();
-                        return true;
-                    }
-                    const textarea = editor.querySelector("textarea");
-                    if (!textarea) return false;
-                    textarea.value = text;
-                    textarea.dispatchEvent(new Event("input", { bubbles: true }));
-                    textarea.focus();
-                    return true;
-                }
-
-                async function submitCommentPhrase(details) {
-                    if (!ctx.loggedIn) return statusMessage("warning", "请先登录后再参加抽奖");
-                    if (!details.commentPhrase) return statusMessage("warning", "未能识别专属题词，请手动查看帖子要求");
-                    if (!setEditorText(details.commentPhrase)) return statusMessage("warning", "未找到评论编辑器，请先打开评论框");
-                    const editor = document.querySelector(".md-editor");
-                    const submit = editor?.querySelector("button.submit.btn,button[type='submit'],button.submit");
-                    if (!submit) return statusMessage("warning", "未找到评论提交按钮，请确认评论框已打开");
-                    submit.click();
-                    const reminders = getReminders();
-                    const reminder = reminders.find(value => postIdFromUrl(value.postUrl) === details.postId);
-                    if (reminder) {
-                        // 点击提交只代表发起提交，必须等页面出现当前用户评论后才算参加。
-                        reminder.commentSubmittedAt = null;
-                        reminder.commentPendingAt = Date.now();
-                        reminder.commentPhrase = details.commentPhrase;
-                        saveReminders(reminders);
-                    }
-                    statusMessage("success", "已提交抽奖题词，等待页面确认评论后才会显示已参加");
-                    setTimeout(refreshLotteryIndicators, 600);
-                }
-
-                function openParticipationModal(details, fromAdd = false) {
-                    document.getElementById(PARTICIPATION_MODAL_ID)?.remove();
-                    const mask = document.createElement("div");
-                    mask.id = PARTICIPATION_MODAL_ID;
-                    mask.className = "nsx-lottery-modal-mask";
-                    const modal = document.createElement("section");
-                    modal.className = "nsx-lottery-modal nsx-lottery-participation-modal";
-                    const heading = document.createElement("div");
-                    heading.className = "nsx-lottery-modal-header";
-                    const title = document.createElement("h3");
-                    title.textContent = "检测到抽奖参与要求";
-                    const close = document.createElement("button");
-                    close.type = "button";
-                    close.className = "nsx-lottery-icon-btn";
-                    close.setAttribute("aria-label", "关闭");
-                    close.textContent = "×";
-                    heading.append(title, close);
-                    const body = document.createElement("div");
-                    body.className = "nsx-lottery-participation-body";
-                    const intro = document.createElement("p");
-                    intro.textContent = fromAdd ? "已保存抽奖提醒。" : "这是抽奖贴，但当前还没有参加记录。";
-                    body.appendChild(intro);
-                    const info = getRequirementInfo(details);
-                    const required = document.createElement("p");
-                    required.textContent = info.keys.length
-                        ? "需要完成：" + requirementText(info) + (info.mode === "any" ? "（满足任一项即可）" : "（全部满足）")
-                        : "未能识别明确的参与条件，点击按钮不会直接标记为已参加。";
-                    body.appendChild(required);
-                    if (details.commentPhrase) {
-                        const phrase = document.createElement("code");
-                        phrase.textContent = details.commentPhrase;
-                        body.append("需要评论专属题词：", phrase);
-                    } else if (info.requirements.comment) {
-                        const hint = document.createElement("p");
-                        hint.textContent = "检测到需要评论参加，但没有可靠识别出专属题词，请先人工确认。";
-                        body.appendChild(hint);
-                    }
-                    if (info.keys.some(key => key !== "comment")) {
-                        const monitorHint = document.createElement("p");
-                        monitorHint.textContent = "完成点赞、加鸡腿或收藏后，脚本会读取按钮状态并自动更新。";
-                        body.appendChild(monitorHint);
-                    }
-                    const actions = document.createElement("div");
-                    actions.className = "nsx-lottery-modal-actions";
-                    const addOnly = document.createElement("button");
-                    addOnly.type = "button";
-                    addOnly.textContent = "仅保存提醒";
-                    const confirm = document.createElement("button");
-                    confirm.type = "button";
-                    confirm.className = "is-primary";
-                    const canOneClick = !!details.commentPhrase && ctx.store.get("lottery_reminder.one_click_comment", true);
-                    confirm.textContent = canOneClick ? "一键评论参加抽奖" : "请手动完成条件";
-                    confirm.disabled = !canOneClick;
-                    actions.append(addOnly, confirm);
-                    modal.append(heading, body, actions);
-                    mask.appendChild(modal);
-                    document.body.appendChild(mask);
-                    const closeModal = () => mask.remove();
-                    close.addEventListener("click", closeModal);
-                    mask.addEventListener("click", event => event.target === mask && closeModal());
-                    addOnly.addEventListener("click", closeModal);
-                    confirm.addEventListener("click", async () => {
-                        closeModal();
-                        await submitCommentPhrase(details);
-                    });
-                }
-
                 function handleLotteryAction(details) {
-                    const state = getParticipationState(details);
-                    if (state.kind === "joined") return openPanel();
-                    if (!ctx.isPost || postIdFromUrl(location.href) !== details.postId) {
-                        saveLotteryDetails(details);
-                        sessionStorage.setItem("nsx-lottery-pending", JSON.stringify(details));
-                        location.href = details.postUrl;
-                        return;
-                    }
                     saveLotteryDetails(details);
-                    if (getRequirementInfo(details).keys.length) openParticipationModal(details);
-                    else statusMessage("warning", "已保存提醒，但未识别到明确参与条件，完成实际操作后再确认");
+                    openPanel();
                 }
 
                 function ensureCurrentLotteryAction(details) {
@@ -6069,22 +5963,31 @@
                         mount.prepend(button);
                     }
                     if (button.dataset.state !== state.kind) button.dataset.state = state.kind;
-                    const missingText = state.missing ? "待完成：" + state.missing : "请先完成帖子要求";
-                    const buttonTitle = state.kind === "needs-comment" && details.commentPhrase
-                        ? "需要评论题词：" + details.commentPhrase
-                        : state.kind === "joined" ? "已参加抽奖，点击打开提醒" : state.kind === "needs-confirmation" ? "未识别明确参与条件" : missingText;
-                    if (button.title !== buttonTitle) button.title = buttonTitle;
-                    const buttonText = state.kind === "joined"
-                        ? "✅ 已参加抽奖"
-                        : state.kind === "needs-comment"
-                            ? "🎁 需评论题词"
-                            : state.kind === "needs-action"
-                                ? "🎁 需完成条件"
-                                : state.kind === "needs-confirmation"
-                                    ? "🎁 待确认参与"
-                                    : "🎁 未参加抽奖";
-                    if (button.textContent !== buttonText) button.textContent = buttonText;
+                    button.title = "打开抽奖提醒管理器";
+                    button.textContent = "🎁 抽奖提醒管理器";
                     button.onclick = () => handleLotteryAction(details);
+                }
+
+                function renderLotteryStateTag(root, state, existingTags) {
+                    const oldTag = root?.querySelector(".nsx-lottery-state-tag");
+                    const titleNode = ctx.isPost
+                        ? root?.querySelector("h1,.post-content-title,.post-title")
+                        : root?.querySelector('.post-title a[href*="/post-"],a[href*="/post-"]');
+                    if (!titleNode) {
+                        oldTag?.remove();
+                        existingTags?.delete(oldTag);
+                        return;
+                    }
+                    const tag = oldTag || document.createElement("span");
+                    if (!oldTag) {
+                        tag.className = "nsx-lottery-state-tag";
+                        titleNode.insertAdjacentElement("afterend", tag);
+                    }
+                    existingTags?.delete(tag);
+                    tag.dataset.state = state.kind;
+                    const tagText = state.kind === "joined" ? "已参加" : "未参加";
+                    tag.textContent = tagText;
+                    tag.title = tagText;
                 }
 
                 function refreshLotteryIndicators() {
@@ -6096,10 +5999,17 @@
                     }
                     const autoDetect = ctx.store.get("lottery_reminder.auto_detect", true);
                     if (ctx.isPost) {
+                        const root = document.querySelector(".nsk-post") || document.querySelector("article.post-content") || document.body;
+                        const details = autoDetect ? detectLottery(root, canonicalPostUrl(location.href)) : null;
+                        if (details) {
+                            const state = getParticipationState(details);
+                            renderLotteryStateTag(root, state, existingTags);
+                            ensureCurrentLotteryAction(details);
+                        } else {
+                            existingTags.forEach(element => element.remove());
+                            document.querySelectorAll(".nsx-lottery-post-action").forEach(element => element.remove());
+                        }
                         existingTags.forEach(element => element.remove());
-                        const details = autoDetect ? detectLottery(document.querySelector(".nsk-post") || document.querySelector("article.post-content") || document.body, canonicalPostUrl(location.href)) : null;
-                        if (details) ensureCurrentLotteryAction(details);
-                        else document.querySelectorAll(".nsx-lottery-post-action").forEach(element => element.remove());
                         return;
                     }
                     document.querySelectorAll(".nsx-lottery-post-action").forEach(element => element.remove());
@@ -6109,35 +6019,14 @@
                     }
                     lotteryRoots().forEach(root => {
                         const details = detectLottery(root);
-                        const oldTag = root.querySelector(".nsx-lottery-state-tag");
                         if (!details) {
+                            const oldTag = root.querySelector(".nsx-lottery-state-tag");
                             oldTag?.remove();
                             existingTags.delete(oldTag);
                             return;
                         }
                         const state = getParticipationState(details);
-                        const titleLink = root.querySelector('.post-title a[href*="/post-"],a[href*="/post-"]');
-                        if (!titleLink) return;
-                        const tag = oldTag || document.createElement("span");
-                        if (!oldTag) {
-                            tag.className = "nsx-lottery-state-tag";
-                            titleLink.insertAdjacentElement("afterend", tag);
-                        }
-                        existingTags.delete(tag);
-                        tag.dataset.state = state.kind;
-                        const tagText = state.kind === "joined"
-                            ? "已参加抽奖"
-                            : state.kind === "needs-comment"
-                                ? "需评论题词"
-                                : state.kind === "needs-action"
-                                    ? "需完成条件"
-                                    : state.kind === "needs-confirmation"
-                                        ? "待确认参与"
-                                        : "未参加抽奖";
-                        if (tag.textContent !== tagText) tag.textContent = tagText;
-                        tag.title = state.kind === "needs-comment" && details.commentPhrase
-                            ? "需要评论题词：" + details.commentPhrase
-                            : state.missing ? "待完成：" + state.missing : tagText;
+                        renderLotteryStateTag(root, state, existingTags);
                     });
                     existingTags.forEach(element => element.remove());
                 }
@@ -6199,7 +6088,7 @@
                         {
                             title: "开奖结果",
                             fields: [
-                                { path: "autoResult.enabled", label: "打开抽奖页时识别结果", type: "checkbox" },
+                                { path: "autoResult.enabled", label: "开奖后自动识别并通知", type: "checkbox" },
                                 { path: "autoResult.username", label: "我的用户名", placeholder: "用于判断是否中奖" }
                             ]
                         },
@@ -6471,22 +6360,14 @@
                         '.nsx-lottery-participated{display:inline-block;margin-left:6px;padding:1px 5px;border-radius:4px;background:#e8f5e9;color:#2e7d32;font-size:11px;font-weight:600}' +
                         '.nsx-lottery-state-tag{display:inline-block;margin-left:8px;padding:2px 7px;border-radius:5px;background:#fff4e5;color:#b45309;font-size:11px;font-weight:700;vertical-align:middle}' +
                         '.nsx-lottery-state-tag[data-state="joined"]{background:#e8f5e9;color:#2e7d32}' +
-                        '.nsx-lottery-state-tag[data-state="needs-comment"]{background:#fff1f0;color:#cf1322}' +
-                        '.nsx-lottery-state-tag[data-state="needs-action"],.nsx-lottery-state-tag[data-state="needs-confirmation"]{background:#fff7e6;color:#ad6800}' +
                         '.nsx-lottery-post-action{font-size:10px!important;padding:2px 8px!important;border-radius:5px!important;border:1px solid #1677ff!important;background:rgba(22,119,255,.08)!important;color:#1677ff!important;cursor:pointer;line-height:1.6;font-weight:600;white-space:nowrap}' +
                         '.nsx-lottery-post-action[data-state="joined"]{border-color:#2e7d32!important;background:#e8f5e9!important;color:#2e7d32!important}' +
-                        '.nsx-lottery-post-action[data-state="needs-comment"]{border-color:#d4380d!important;background:#fff1f0!important;color:#d4380d!important}' +
-                        '.nsx-lottery-post-action[data-state="needs-action"],.nsx-lottery-post-action[data-state="needs-confirmation"]{border-color:#d48806!important;background:#fff7e6!important;color:#ad6800!important}' +
                         '.nsx-lottery-participation-body{font-size:14px;line-height:1.7;color:inherit;padding:4px 0}' +
                         '.nsx-lottery-participation-body code{display:block;margin:10px 0;padding:10px 12px;border:1px solid #d9e2f3;border-radius:6px;background:#f5f8ff;color:#165dce;font-size:16px;word-break:break-word;white-space:pre-wrap}' +
                         '.dark-layout .nsx-lottery-state-tag{background:#3a2d18;color:#ffc069}' +
                         '.dark-layout .nsx-lottery-state-tag[data-state="joined"]{background:#1f3a28;color:#95de64}' +
-                        '.dark-layout .nsx-lottery-state-tag[data-state="needs-comment"]{background:#3a1f1f;color:#ff7875}' +
-                        '.dark-layout .nsx-lottery-state-tag[data-state="needs-action"],.dark-layout .nsx-lottery-state-tag[data-state="needs-confirmation"]{background:#3a2d18;color:#ffc069}' +
                         '.dark-layout .nsx-lottery-post-action{background:rgba(100,181,246,.12)!important;color:#8dbdff!important}' +
                         '.dark-layout .nsx-lottery-post-action[data-state="joined"]{background:#1f3a28!important;color:#95de64!important}' +
-                        '.dark-layout .nsx-lottery-post-action[data-state="needs-comment"]{background:#3a1f1f!important;color:#ff7875!important}' +
-                        '.dark-layout .nsx-lottery-post-action[data-state="needs-action"],.dark-layout .nsx-lottery-post-action[data-state="needs-confirmation"]{background:#3a2d18!important;color:#ffc069!important}' +
                         '.nsx-lottery-modal-mask{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:100000;display:flex;align-items:center;justify-content:center;padding:16px}' +
                         '.nsx-lottery-modal{width:min(560px,96vw);max-height:90vh;overflow:auto;background:#fff;color:#333;border-radius:8px;padding:18px}' +
                         '.nsx-lottery-modal-header{position:sticky;top:-18px;background:#fff;z-index:1;display:flex;align-items:center;justify-content:space-between;padding:4px 0 10px;border-bottom:1px solid #eee}' +
@@ -6552,7 +6433,6 @@
                     menuIds = [];
                     stopParticipationMonitor();
                     document.getElementById(MODAL_ID)?.remove();
-                    document.getElementById(PARTICIPATION_MODAL_ID)?.remove();
                     document.querySelectorAll(".nsx-lottery-participated,.nsx-lottery-state-tag,.nsx-lottery-post-action").forEach(element => element.remove());
                     trigger?.remove();
                     panel?.remove();
