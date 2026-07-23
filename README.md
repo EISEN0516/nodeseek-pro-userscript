@@ -17,6 +17,8 @@
 - 登录后通过本人公开的评论历史逐步补全以前参加过的抽奖帖。
 - 只有检测到真实评论、点赞、加鸡腿或收藏等证据时才标记为已参加，打开提醒管理器不会造成误判。
 
+![抽奖参与状态](docs/images/lottery-participation-status.png)
+
 ### 抽奖提醒与开奖结果通知
 
 - 管理抽奖帖和开奖时间，支持临近开奖提醒。
@@ -26,12 +28,16 @@
 
 所有外部通知渠道默认关闭，需要用户自行配置对应平台的 Token、Chat ID、Webhook 或 API Key。
 
+![抽奖通知配置](docs/images/lottery-notification-settings.png)
+
 ### PM/TG 快捷联系
 
 - 在帖子作者或回复者的等级、注册天数后显示快捷按钮。
 - PM 按钮直接进入该用户的 NodeSeek 站内私信。
 - TG 按钮从用户公开的个性签名中识别 Telegram 链接。
 - 对方没有公开 Telegram 信息时，不会生成无效 TG 链接。
+
+![PM 和 TG 快捷联系](docs/images/quick-contact-pm-tg.png)
 
 ## 其他功能
 
