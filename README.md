@@ -1,136 +1,70 @@
-# Nodeseek Max-iSen (自定义过滤增强版)
+# Nodeseek Max-iSen (低等级过滤增强版)
 
-> [!NOTE]
-> **开源声明与上游贡献**：
-> 本项目基于原作者 [EISEN0516/nodeseek-pro-userscript](https://github.com/EISEN0516/nodeseek-pro-userscript) 进行二次开发与增强。
-> 本分支所重构与增强的「低等级内容屏蔽（支持真实作者等级过滤、全局与关键词双模式）」功能已向上游原作者提交 Pull Request：[PR #1](https://github.com/EISEN0516/nodeseek-pro-userscript/pull/1)。
+> 本脚本为针对 **NodeSeek / DeepFlood** 论坛的体验增强油猴脚本，在保留原版全部能力的基础上，**重点重构并强化了「低等级内容屏蔽」功能**，支持按真实作者等级与关键词双模式智能过滤。
 
-用于增强 NodeSeek/DeepFlood 论坛浏览体验的 Tampermonkey 用户脚本，重点提供低等级内容屏蔽、抽奖参与状态、抽奖提醒与开奖结果通知，以及站内 PM/TG 快捷联系。
+---
 
-- [GreasyFork 安装页面](https://greasyfork.org/zh-CN/scripts/588182-nodeseek-max-isen)
-- [GreasyFork 代码页面](https://greasyfork.org/zh-CN/scripts/588182-nodeseek-max-isen/code)
-- [直接安装脚本](https://update.greasyfork.org/scripts/588182/Nodeseek%20Max-iSen.user.js)
-- [问题反馈](https://github.com/EISEN0516/nodeseek-pro-userscript/issues)
+## 🚀 安装链接
 
-## 核心功能
+* **[👉 点击直接安装 / 更新本增强版脚本](https://raw.githubusercontent.com/tonly6679-star/nodeseek-pro-userscript/main/Nodeseek%20Pro.user.js)**
+* **[📦 GitHub Releases 页面](https://github.com/tonly6679-star/nodeseek-pro-userscript/releases)**
+* **[💻 GitHub 仓库主页](https://github.com/tonly6679-star/nodeseek-pro-userscript)**
 
-### 抽奖参与状态
+> [!TIP]
+> 本版本已独立设置命名空间与更新源，可与原版独立共存或单独使用，不用担心被原版自动更新覆盖。
 
-- 自动识别抽奖相关帖子。
-- 在帖子列表和详情页标题旁显示“抽奖已参加”或“抽奖未参加”。
-- 按用户保存参与历史，刷新页面或暂时退出登录后不会丢失。
-- 登录后通过本人公开的评论历史逐步补全以前参加过的抽奖帖。
-- 只有检测到真实评论、点赞、加鸡腿或收藏等证据时才标记为已参加，打开提醒管理器不会造成误判。
+---
 
-![抽奖参与状态](docs/images/lottery-participation-status.png)
+## 📢 开源声明与致谢
 
-### 抽奖提醒与开奖结果通知
+- 本项目基于原作者 **EISEN0516** 的优秀开源项目 [EISEN0516/nodeseek-pro-userscript](https://github.com/EISEN0516/nodeseek-pro-userscript) 进行二次开发与增强。
+- 原版仓库地址：[https://github.com/EISEN0516/nodeseek-pro-userscript](https://github.com/EISEN0516/nodeseek-pro-userscript)
+- 原版 GreasyFork 地址：[https://greasyfork.org/zh-CN/scripts/588182-nodeseek-max-isen](https://greasyfork.org/zh-CN/scripts/588182-nodeseek-max-isen)
+- 本项目所修改的增强功能已向原作者提交合并请求：[Pull Request #1](https://github.com/EISEN0516/nodeseek-pro-userscript/pull/1)。
 
-- 管理抽奖帖和开奖时间，支持临近开奖提醒。
-- 抽奖链接没有时间戳时，可从正文识别 `7.30 晚8点`、`7月30日20:00`、完整年月日、`今晚/明天/后天` 和 `8点半` 等常见写法，并按北京时间计算。
-- 开奖后自动检查结果，中奖和未中奖均可通知。
-- 外部通知失败时不会误标为已发送，会保存失败状态并自动退避重试；“测试通知”会显示真实发送结果。
-- 通知中的“查看抽奖”直接指向对应帖子。
-- 支持 Telegram Bot、邮件、微信推送、Bark、钉钉、飞书、企业微信和 Discord 等通知渠道。
+---
 
-所有外部通知渠道默认关闭，需要用户自行配置对应平台的 Token、Chat ID、Webhook 或 API Key。
+## ✨ 本版本新增与重构重点
 
-![抽奖通知配置](docs/images/lottery-notification-settings.png)
+### 🚫 全新「低等级内容屏蔽」（按发帖/回帖真实等级过滤）
 
-### PM/TG 快捷联系
+原版的“低等级内容屏蔽”实质上是检测带锁权限帖的门槛，无法过滤低等级新手、小号灌水发帖与回复。本版本进行了彻底重构：
 
-- 在帖子作者或回复者的等级、注册天数后显示快捷按钮。
-- PM 按钮直接进入该用户的 NodeSeek 站内私信。
-- TG 按钮从用户公开的个性签名中识别 Telegram 链接。
-- 对方没有公开 Telegram 信息时，不会生成无效 TG 链接。
+#### 1. 真实作者账号等级识别
+- 自动识别列表页发帖者、详情页主帖及每个楼层回帖者的真实等级（Lv.0 ~ Lv.6）。
+- **多级智能缓存**：内置本地 `localStorage` 缓存（有效时间 7 天）与内存即时缓存，遇到过的用户**毫秒级瞬间隐藏，零网络开销与界面闪烁**。
+- **后台平滑限速**：遇到新用户加入后台排队限速请求，避免短时间向论坛发出突发请求造成卡顿或限流。
+- **白名单机制**：自动识别当前登录账号，**绝对不会误屏蔽你自己的发言**。
 
-![PM 和 TG 快捷联系](docs/images/quick-contact-pm-tg.png)
+#### 2. 双列联动控制面板
+进入设置面板 **「06 🚫 过滤设置」 -> 「低等级内容屏蔽」** 即可直观配置：
 
-## 其他功能
+| 配置项 | 选项 / 功能说明 |
+| :--- | :--- |
+| **屏蔽目标等级** | 自由选择屏蔽阈值：<br>• `屏蔽 1 级及以下 (Lv.0 ~ Lv.1)`<br>• `屏蔽 2 级及以下 (Lv.0 ~ Lv.2)`<br>• `屏蔽 3 级及以下 (Lv.0 ~ Lv.3)` |
+| **屏蔽触发模式** | • **屏蔽全局**：目标等级的所有发帖与回帖无条件彻底隐藏。<br>• **屏蔽关键词**：仅当目标等级用户发布的内容**命中关键词**时才拦截，正常交流讨论不误杀。 |
+| **匹配关键词** | 自定义输入拦截词（中英文逗号隔开）；**留空时自动继承【关键字管理】里的屏蔽词**，无需重复录入。 |
+| **细分范围控制** | 支持分别开关「作用于发帖 (主题列表)」与「作用于回复 (评论楼层)」。 |
+| **即时热重载** | 设置面板修改保存后，无需刷新浏览器，页面内容**即时重新过滤生效**。 |
 
-- 自动签到
-- 楼中楼回复
-- 移动端响应式适配
-- 帖子和评论下拉加载
-- 快速回复与 AI 文本美化入口
-- 关键字和用户内容过滤
-- 用户等级、注册天数和关系标记
-- 浏览历史和图片预览
-- 回帖足迹：同步本人公开回复历史，在帖子列表显示最近回复楼层
-- 链接净化：绕过论坛跳转页、清理常见跟踪参数、标记外链
-- 多图床上传：支持 NodeImage、Chevereto、Lsky Pro、EasyImages 和 Telegraph
-- 响应式设置面板
+---
 
-## 新增功能设置
+## 🛠️ 继承的原版主要功能
 
-### 回帖足迹
+除上述重构的等级过滤外，本脚本完整保留并继承原版的全部优秀特性：
 
-“回帖足迹”默认关闭。可在“高级设置 → 辅助工具”中开启，首次使用会询问是否同步本人公开的回帖记录。同步结果保存在浏览器 IndexedDB 中，不会上传到项目服务器。
+- **🎁 抽奖参与状态与提醒**：自动识别抽奖贴参与状态，支持临近开奖提醒与多渠道推送通知（Telegram、邮件、微信推送等）。
+- **💬 楼中楼折叠与层级树**：针对帖内 @ 回复构建优雅嵌套层级，支持展开/收起。
+- **👣 回帖足迹**：自动记录并标记自己曾回复过的帖子与对应楼层。
+- **🧹 链接净化**：去除重定向跳转与推广/跟踪参数。
+- **🖼️ 多图床上传**：内置 NodeImage 及多种可选图床上传支持。
+- **🎨 视觉与体验优化**：时间中文化、已读变灰、代码高亮复制、移动端适配优化。
 
-### 链接净化
+---
 
-“链接净化”默认开启，只在浏览器本地处理帖子正文中的链接。短链接展开默认关闭，因为开启后需要主动请求短链服务；可在“高级设置 → 隐私与规则”中单独开启并编辑净化规则。
+## 📥 安装与使用步骤
 
-### 多图床上传
-
-NodeImage 仍是默认图床，并继续支持自动获取 API Key。切换到其他图床时，需要在“高级设置 → 基础功能”中填写相应的服务地址和 Token；修改图床设置后页面会自动刷新。
-
-## 安装教程
-
-### 1. 安装用户脚本管理器
-
-桌面浏览器可安装 [Tampermonkey](https://www.tampermonkey.net/) 或 Violentmonkey。移动端需要使用支持用户脚本扩展的浏览器。
-
-### 2. 安装脚本
-
-推荐打开 [GreasyFork 安装页面](https://greasyfork.org/zh-CN/scripts/588182-nodeseek-max-isen)，点击“安装此脚本”并在用户脚本管理器中确认。
-
-也可以使用以下地址直接安装：
-
-<https://update.greasyfork.org/scripts/588182/Nodeseek%20Max-iSen.user.js>
-
-安装或更新完成后刷新 NodeSeek 页面。
-
-### 3. 配置抽奖提醒
-
-1. 点击页面顶部的“打开抽奖提醒”，或在抽奖帖中点击“抽奖提醒管理器”。
-2. 按需要添加和管理抽奖提醒。
-3. 打开“抽奖通知配置”，填写自己的 NodeSeek 用户名。
-4. 选择并配置需要的通知渠道。
-5. 先点击“测试通知”，确认成功后保存。
-
-不需要外部通知时，也可以只使用标题旁的参与状态和站内提醒。
-
-## 使用说明
-
-- 浏览帖子列表或进入帖子后，直接查看标题旁的参与状态。
-- 实际完成评论、点赞、加鸡腿或收藏后，脚本会保存参与证据。
-- 需要开奖提醒时，通过“抽奖提醒管理器”添加对应帖子。
-- 需要联系用户时，点击其等级和注册天数后的 PM 或 TG 按钮。
-
-脚本不会自动参与抽奖，也不会自动评论、点赞、加鸡腿或收藏。
-
-## 隐私与安全
-
-- 抽奖参与历史和脚本设置保存在用户脚本管理器的本地存储中。
-- 项目不保存论坛账号、密码、Telegram Bot Token 或其他通知服务密钥。
-- 自定义图床地址、Token 和请求头只保存在用户脚本管理器的本地设置中，并仅在用户主动上传图片时发送给所选图床。
-- 开启短链接展开后，浏览器会向帖子中出现的短链服务发出 `HEAD` 请求；不需要时请保持关闭。
-- 只有启用第三方通知后，通知内容才会发送到用户自己配置的服务。
-- 源码未压缩、未混淆，可在 GitHub 或 GreasyFork 代码页面直接查看。
-
-## 更新方式
-
-脚本元数据已配置 GitHub Raw 更新地址。Tampermonkey 检查更新时会读取 `main` 分支中的脚本版本号，也可以重新打开 GreasyFork 安装页面手动更新。
-
-## 开发约定
-
-每次修改脚本功能后递增 `@version`，运行语法检查和 GreasyFork 用户脚本校验，再提交到 `main` 分支。
-
-## 许可证
-
-GPL-3.0
-
-## 致谢
-
-回帖足迹、链接净化和多图床适配参考了 GPL-3.0 许可的 [NodeSeek X](https://greasyfork.org/zh-CN/scripts/479426-nodeseek-x)，并针对权限、隐私、数据升级和浏览器兼容问题进行了重写。完整对照见 [NodeSeek X 1.1.1 功能与安全分析](docs/nodeseek-x-1.1.1-analysis.md)。
+1. 安装浏览器脚本管理器扩展（如 [Tampermonkey 篡改猴](https://www.tampermonkey.net/) 或 ScriptCat）。
+2. 点击 **[直接安装脚本](https://raw.githubusercontent.com/tonly6679-star/nodeseek-pro-userscript/main/Nodeseek%20Pro.user.js)**，并在弹出的管理器页面中点击“安装”。
+3. 访问 [NodeSeek 论坛](https://www.nodeseek.com/)，在右上角悬浮球或菜单中打开设置。
+4. 切换到 **「06 过滤设置」**，根据需要配置等级与关键词过滤规则即可！
