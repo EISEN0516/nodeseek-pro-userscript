@@ -2,7 +2,7 @@
 // @name         Nodeseek Max-iSen
 // @description  增强 NodeSeek/DeepFlood 论坛体验：楼中楼、抽奖提醒、回帖足迹、链接净化、多图床上传、内容过滤、浏览历史及移动端适配。
 // @namespace    http://www.nodeseek.com/
-// @version      1.1.21
+// @version      1.1.22
 // @homepageURL   https://github.com/EISEN0516/nodeseek-pro-userscript
 // @supportURL    https://github.com/EISEN0516/nodeseek-pro-userscript/issues
 // @icon          https://raw.githubusercontent.com/EISEN0516/nodeseek-pro-userscript/main/docs/images/nodeseek-max-isen-icon.png
@@ -760,29 +760,277 @@
     }, Symbol.toStringTag, { value: 'Module' }));
 
     /* ==========================================================================
-       [ 🚫 过滤设置 ] - 低等级可见内容屏蔽
+       [ 🚫 过滤设置 ] - 低等级内容屏蔽（屏蔽指定等级及以下用户的发帖与回复）
        ========================================================================== */
 
-    const mark$2 = new WeakSet();
-    const run = (els, ctx) => {
-        const lv = ctx.user?.rank || 0;
-        els.forEach(el => {
-            const item = el.closest(".post-list-item");
-            if (!item || mark$2.has(item)) return;
-            mark$2.add(item);
-            const n = +(el.closest("span")?.textContent?.match(/\d+/)?.[0] || 0);
-            if (n > lv) item.classList.add("blocked-post");
+    const RANK_CACHE_KEY = "nsx_user_rank_cache_v2";
+    const CACHE_EXPIRE_MS = 7 * 24 * 60 * 60 * 1000;
+
+    const getLocalRankCache = () => {
+        try {
+            return JSON.parse(localStorage.getItem(RANK_CACHE_KEY) || "{}");
+        } catch {
+            return {};
+        }
+    };
+
+    const saveLocalRankCache = (cache) => {
+        try {
+            localStorage.setItem(RANK_CACHE_KEY, JSON.stringify(cache));
+        } catch { }
+    };
+
+    const memRankCache = new Map();
+    try {
+        const stored = getLocalRankCache();
+        const now = Date.now();
+        for (const [uid, item] of Object.entries(stored)) {
+            if (item && item.expire > now && typeof item.rank === "number") {
+                memRankCache.set(Number(uid), item.rank);
+            }
+        }
+    } catch { }
+
+    const pendingRankRequests = new Map();
+    const rankQueue = [];
+    let isProcessingQueue = false;
+
+    const processRankQueue = (ctx) => {
+        if (isProcessingQueue || rankQueue.length === 0) return;
+        isProcessingQueue = true;
+
+        const task = rankQueue.shift();
+        if (!task) {
+            isProcessingQueue = false;
+            return;
+        }
+
+        const { uid, callbacks } = task;
+        const doFetch = async () => {
+            try {
+                const res = await ctx.net.get(`/api/account/getInfo/${uid}`);
+                let rank = 0;
+                if (res?.success && res.detail) {
+                    const d = res.detail;
+                    rank = typeof d.rank === "number" ? d.rank : Math.min(6, Math.floor(Math.sqrt(d.coin || 0) / 10));
+                }
+                memRankCache.set(uid, rank);
+                const local = getLocalRankCache();
+                local[uid] = { rank, expire: Date.now() + CACHE_EXPIRE_MS };
+                saveLocalRankCache(local);
+
+                callbacks.forEach(cb => {
+                    try { cb(rank); } catch { }
+                });
+            } catch {
+            } finally {
+                pendingRankRequests.delete(uid);
+                setTimeout(() => {
+                    isProcessingQueue = false;
+                    processRankQueue(ctx);
+                }, 120);
+            }
+        };
+
+        doFetch();
+    };
+
+    const queryUserRank = (uid, ctx, cb) => {
+        if (!uid || !Number.isFinite(uid)) return;
+        if (memRankCache.has(uid)) {
+            cb(memRankCache.get(uid));
+            return;
+        }
+        if (pendingRankRequests.has(uid)) {
+            pendingRankRequests.get(uid).push(cb);
+            return;
+        }
+        const callbacks = [cb];
+        pendingRankRequests.set(uid, callbacks);
+        rankQueue.push({ uid, callbacks });
+        processRankQueue(ctx);
+    };
+
+    const extractUidFromElement = (el) => {
+        if (!el) return null;
+        const link = el.querySelector?.('a[href*="/space/"]') || (el.tagName === 'A' && el.href?.includes('/space/') ? el : null);
+        if (link?.href) {
+            const m = link.href.match(/\/space\/(\d+)/);
+            if (m) return Number(m[1]);
+        }
+        const avatar = el.querySelector?.('[data-uid]') || (el.dataset?.uid ? el : null);
+        if (avatar?.dataset?.uid) {
+            const id = Number(avatar.dataset.uid);
+            if (Number.isFinite(id)) return id;
+        }
+        return null;
+    };
+
+    const getMatchKeywords = (ctx) => {
+        const custom = (ctx.store.get("block_view_level.custom_keywords", "") || "").trim();
+        if (custom) {
+            return custom.split(/[,，\n\s]+/).map(s => s.trim().toLowerCase()).filter(Boolean);
+        }
+        try {
+            const raw = JSON.parse(localStorage.getItem('nsx_advanced_keywords') || '{}');
+            const list = [];
+            for (const [kw, info] of Object.entries(raw)) {
+                if (info && info.type === 'block') {
+                    const words = String(kw || "").split(/[,，]/).map(s => s.trim().toLowerCase()).filter(Boolean);
+                    list.push(...words);
+                }
+            }
+            return list;
+        } catch {
+            return [];
+        }
+    };
+
+    const extractItemText = (item, isReply) => {
+        if (!item) return "";
+        if (isReply) {
+            const content = item.querySelector('.post-content, .comment-content')?.textContent || item.textContent || "";
+            return content.toLowerCase();
+        }
+        const title = item.querySelector('.post-title, .title, a[href^="/post-"]')?.textContent || "";
+        const desc = item.querySelector('.post-desc, .content')?.textContent || "";
+        return (title + " " + desc).toLowerCase();
+    };
+
+    const applyItemFilter = (item, ctx, isReply) => {
+        if (!item) return;
+
+        const enabled = ctx.store.get("block_view_level.enabled", true);
+        const maxLevel = Number(ctx.store.get("block_view_level.max_level", 1));
+        const matchMode = ctx.store.get("block_view_level.match_mode", "all");
+        const blockThreads = ctx.store.get("block_view_level.block_threads", true);
+        const blockReplies = ctx.store.get("block_view_level.block_replies", true);
+
+        if (!enabled || (isReply && !blockReplies) || (!isReply && !blockThreads)) {
+            if (item.classList.contains("nsx-level-blocked")) {
+                item.classList.remove("nsx-level-blocked", "blocked-post");
+                item.style.display = "";
+            }
+            return;
+        }
+
+        const uid = extractUidFromElement(item);
+        if (!uid) return;
+
+        if (ctx.uid && Number(ctx.uid) === uid) return;
+
+        item.dataset.nsxAuthorUid = String(uid);
+
+        queryUserRank(uid, ctx, (rank) => {
+            if (rank <= maxLevel) {
+                let shouldBlock = true;
+                if (matchMode === "keyword") {
+                    const kws = getMatchKeywords(ctx);
+                    if (kws.length > 0) {
+                        const text = extractItemText(item, isReply);
+                        shouldBlock = kws.some(kw => text.includes(kw));
+                    } else {
+                        shouldBlock = false;
+                    }
+                }
+
+                if (shouldBlock) {
+                    item.classList.add("nsx-level-blocked", "blocked-post");
+                    item.style.display = "none";
+                } else if (item.classList.contains("nsx-level-blocked")) {
+                    item.classList.remove("nsx-level-blocked", "blocked-post");
+                    item.style.display = "";
+                }
+            } else if (item.classList.contains("nsx-level-blocked")) {
+                item.classList.remove("nsx-level-blocked", "blocked-post");
+                item.style.display = "";
+            }
         });
+    };
+
+    const filterListAndPosts = (ctx) => {
+        if (ctx.isList) {
+            const items = $$('.post-list-item, .post-list .list-item');
+            items.forEach(el => applyItemFilter(el, ctx, false));
+        }
+        if (ctx.isPost) {
+            const postWrapper = $$('.nsk-post-wrapper');
+            postWrapper.forEach(el => applyItemFilter(el, ctx, false));
+            const comments = $$('.content-item[id], .comment-item, .comments > li');
+            comments.forEach(el => applyItemFilter(el, ctx, true));
+        }
     };
 
     const blockViewLevel = {
         id: "blockViewLevel",
         order: 222,
-        cfg: { block_view_level: { enabled: true } },
-        meta: { block_view_level: { label: "低等级内容屏蔽", group: "🚫 过滤设置" } },
-        match: ctx => ctx.isList && ctx.store.get("block_view_level.enabled", true),
-        init(ctx) { run($$('.post-list-item use[href="#lock"]'), ctx); },
-        watch: ctx => ({ sel: '.post-list-item use[href="#lock"]', fn: els => run(els, ctx), opts: { debounce: 80 } })
+        cfg: {
+            block_view_level: {
+                enabled: true,
+                max_level: 1,
+                match_mode: "all",
+                custom_keywords: "",
+                block_threads: true,
+                block_replies: true
+            }
+        },
+        meta: {
+            block_view_level: {
+                label: "低等级内容屏蔽",
+                group: "🚫 过滤设置",
+                cols: 2,
+                fields: {
+                    max_level: {
+                        type: "SELECT",
+                        label: "屏蔽目标等级",
+                        valueType: "number",
+                        col: 6,
+                        options: {
+                            1: "屏蔽 1 级及以下 (Lv.0 ~ Lv.1)",
+                            2: "屏蔽 2 级及以下 (Lv.0 ~ Lv.2)",
+                            3: "屏蔽 3 级及以下 (Lv.0 ~ Lv.3)"
+                        }
+                    },
+                    match_mode: {
+                        type: "SELECT",
+                        label: "屏蔽触发模式",
+                        col: 6,
+                        options: {
+                            all: "屏蔽全局（全部发帖与回复）",
+                            keyword: "屏蔽关键词（仅在命中关键词时屏蔽）"
+                        }
+                    },
+                    custom_keywords: {
+                        type: "TEXT",
+                        label: "匹配关键词",
+                        col: 12,
+                        placeholder: "输入关键词，多个用逗号隔开；留空则默认匹配【关键字管理】中的屏蔽词",
+                        desc: "仅在选择【屏蔽关键词】模式时生效。低等级用户发布的内容包含上述词汇时将被拦截。"
+                    },
+                    block_threads: {
+                        type: "SWITCH",
+                        label: "作用于发帖 (主题列表)",
+                        col: 6
+                    },
+                    block_replies: {
+                        type: "SWITCH",
+                        label: "作用于回复 (评论楼层)",
+                        col: 6
+                    }
+                }
+            }
+        },
+        match: ctx => (ctx.isList || ctx.isPost) && ctx.store.get("block_view_level.enabled", true),
+        init(ctx) {
+            window.__nsxRuntime ||= {};
+            window.__nsxRuntime.reapplyLevelFilter = () => filterListAndPosts(ctx);
+            filterListAndPosts(ctx);
+        },
+        watch: ctx => ({
+            sel: '.post-list-item, .post-list .list-item, .content-item[id], .comment-item, .comments > li',
+            fn: () => filterListAndPosts(ctx),
+            opts: { debounce: 80 }
+        })
     };
 
     const __vite_glob_0_4 = /*#__PURE__*/Object.freeze(/*#__PURE__*/Object.defineProperty({
@@ -4436,6 +4684,7 @@
 
         if (has("block_posts")) window.__nsxRuntime?.reapplyKeywords?.();
         if (has("relation")) window.__nsxRuntime?.reapplyRelation?.();
+        if (has("block_view_level")) window.__nsxRuntime?.reapplyLevelFilter?.();
         if (has("history")) window.__nsxRuntime?.refreshHistory?.();
         if (has("lottery_reminder")) window.__nsxRuntime?.reapplyLotteryReminder?.();
         if (has("nested_replies")) window.__nsxRuntime?.reapplyNestedReplies?.();
