@@ -39,6 +39,13 @@
 #### 2. 双列联动控制面板
 进入设置面板 **「06 🚫 过滤设置」 -> 「低等级内容屏蔽」** 即可直观配置：
 
+![低等级内容屏蔽设置总览](docs/images/level-filter-settings.png)
+
+<p align="center">
+  <img src="docs/images/level-filter-targets.png" alt="屏蔽目标等级选项" width="48%" />
+  <img src="docs/images/level-filter-modes.png" alt="屏蔽触发模式选项" width="48%" />
+</p>
+
 | 配置项 | 选项 / 功能说明 |
 | :--- | :--- |
 | **屏蔽目标等级** | 自由选择屏蔽阈值：<br>• `屏蔽 1 级及以下 (Lv.0 ~ Lv.1)`<br>• `屏蔽 2 级及以下 (Lv.0 ~ Lv.2)`<br>• `屏蔽 3 级及以下 (Lv.0 ~ Lv.3)` |
