@@ -809,19 +809,20 @@
         const doFetch = async () => {
             try {
                 const res = await ctx.net.get(`/api/account/getInfo/${uid}`);
-                let rank = 0;
                 if (res?.success && res.detail) {
                     const d = res.detail;
-                    rank = typeof d.rank === "number" ? d.rank : Math.min(6, Math.floor(Math.sqrt(d.coin || 0) / 10));
-                }
-                memRankCache.set(uid, rank);
-                const local = getLocalRankCache();
-                local[uid] = { rank, expire: Date.now() + CACHE_EXPIRE_MS };
-                saveLocalRankCache(local);
+                    const rank = typeof d.rank === "number" ? d.rank : (d.coin !== undefined ? Math.min(6, Math.floor(Math.sqrt(d.coin || 0) / 10)) : null);
+                    if (typeof rank === "number") {
+                        memRankCache.set(uid, rank);
+                        const local = getLocalRankCache();
+                        local[uid] = { rank, expire: Date.now() + CACHE_EXPIRE_MS };
+                        saveLocalRankCache(local);
 
-                callbacks.forEach(cb => {
-                    try { cb(rank); } catch { }
-                });
+                        callbacks.forEach(cb => {
+                            try { cb(rank); } catch { }
+                        });
+                    }
+                }
             } catch {
             } finally {
                 pendingRankRequests.delete(uid);
@@ -851,14 +852,33 @@
         processRankQueue(ctx);
     };
 
+    const getRankFromDom = (item) => {
+        if (!item) return null;
+        const badge = item.querySelector?.('.nsx-lv-badge, .role-tag, .user-level, .nsk-badge');
+        const m = badge?.textContent?.match(/Lv\s*(\d+)/i);
+        if (m) {
+            const r = Number(m[1]);
+            if (Number.isFinite(r)) return r;
+        }
+        const meta = item.querySelector?.('.author-info, .nsk-content-meta-info, .post-info');
+        const m2 = meta?.textContent?.match(/Lv\s*(\d+)/i);
+        if (m2) {
+            const r2 = Number(m2[1]);
+            if (Number.isFinite(r2)) return r2;
+        }
+        return null;
+    };
+
     const extractUidFromElement = (el) => {
         if (!el) return null;
-        const link = el.querySelector?.('a[href*="/space/"]') || (el.tagName === 'A' && el.href?.includes('/space/') ? el : null);
+        // 优先在作者信息区域找 uid，避免抓到回复提及或签名档里的其他链接
+        const authorBox = el.querySelector?.('.author-info, .info-author, .post-author, .nsk-content-meta-info');
+        const link = authorBox?.querySelector?.('a[href*="/space/"]') || el.querySelector?.('a[href*="/space/"]');
         if (link?.href) {
             const m = link.href.match(/\/space\/(\d+)/);
             if (m) return Number(m[1]);
         }
-        const avatar = el.querySelector?.('[data-uid]') || (el.dataset?.uid ? el : null);
+        const avatar = el.querySelector?.('.avatar-normal[data-uid], [data-uid]');
         if (avatar?.dataset?.uid) {
             const id = Number(avatar.dataset.uid);
             if (Number.isFinite(id)) return id;
@@ -889,7 +909,7 @@
     const extractItemText = (item, isReply) => {
         if (!item) return "";
         if (isReply) {
-            const content = item.querySelector('.post-content, .comment-content')?.textContent || item.textContent || "";
+            const content = item.querySelector('.post-content, .comment-content')?.textContent || "";
             return content.toLowerCase();
         }
         const title = item.querySelector('.post-title, .title, a[href^="/post-"]')?.textContent || "";
@@ -915,13 +935,16 @@
         }
 
         const uid = extractUidFromElement(item);
-        if (!uid) return;
+        if (uid && ctx.uid && Number(ctx.uid) === uid) {
+            if (item.classList.contains("nsx-level-blocked")) {
+                item.classList.remove("nsx-level-blocked", "blocked-post");
+                item.style.display = "";
+            }
+            return;
+        }
 
-        if (ctx.uid && Number(ctx.uid) === uid) return;
-
-        item.dataset.nsxAuthorUid = String(uid);
-
-        queryUserRank(uid, ctx, (rank) => {
+        const handleRank = (rank) => {
+            if (typeof rank !== "number") return;
             if (rank <= maxLevel) {
                 let shouldBlock = true;
                 if (matchMode === "keyword") {
@@ -945,18 +968,32 @@
                 item.classList.remove("nsx-level-blocked", "blocked-post");
                 item.style.display = "";
             }
-        });
+        };
+
+        // 1. 优先从 DOM 提取已有等级
+        const domRank = getRankFromDom(item);
+        if (domRank !== null) {
+            if (uid) memRankCache.set(uid, domRank);
+            handleRank(domRank);
+            return;
+        }
+
+        // 2. 从缓存或异步接口查询
+        if (uid) {
+            item.dataset.nsxAuthorUid = String(uid);
+            queryUserRank(uid, ctx, handleRank);
+        }
     };
 
     const filterListAndPosts = (ctx) => {
+        // 列表页只过滤单条主题项目
         if (ctx.isList) {
             const items = $$('.post-list-item, .post-list .list-item');
             items.forEach(el => applyItemFilter(el, ctx, false));
         }
+        // 详情页只过滤单条评论楼层，绝不操作外层父级容器！
         if (ctx.isPost) {
-            const postWrapper = $$('.nsk-post-wrapper');
-            postWrapper.forEach(el => applyItemFilter(el, ctx, false));
-            const comments = $$('.content-item[id], .comment-item, .comments > li');
+            const comments = $$('.comments > li, .comment-item, .comments .content-item');
             comments.forEach(el => applyItemFilter(el, ctx, true));
         }
     };
@@ -1027,7 +1064,9 @@
             filterListAndPosts(ctx);
         },
         watch: ctx => ({
-            sel: '.post-list-item, .post-list .list-item, .content-item[id], .comment-item, .comments > li',
+            sel: ctx.isList 
+                ? '.post-list-item, .post-list .list-item' 
+                : '.comments > li, .comment-item, .comments .content-item',
             fn: () => filterListAndPosts(ctx),
             opts: { debounce: 80 }
         })
