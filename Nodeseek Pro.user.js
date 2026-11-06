@@ -1,13 +1,13 @@
 // ==UserScript==
-// @name         Nodeseek Max-iSen
-// @description  增强 NodeSeek/DeepFlood 论坛体验：楼中楼、抽奖提醒、回帖足迹、链接净化、多图床上传、内容过滤、浏览历史及移动端适配。
-// @namespace    http://www.nodeseek.com/
+// @name         Nodeseek Max-iSen (自定义过滤增强版)
+// @description  增强 NodeSeek/DeepFlood 论坛体验：低等级过滤（全局/关键词）、楼中楼、抽奖提醒、回帖足迹、链接净化、多图床上传、内容过滤、浏览历史及移动端适配。
+// @namespace    https://github.com/tonly6679-star/nodeseek-pro-userscript
 // @version      1.1.22
-// @homepageURL   https://github.com/EISEN0516/nodeseek-pro-userscript
-// @supportURL    https://github.com/EISEN0516/nodeseek-pro-userscript/issues
+// @homepageURL   https://github.com/tonly6679-star/nodeseek-pro-userscript
+// @supportURL    https://github.com/tonly6679-star/nodeseek-pro-userscript/issues
 // @icon          https://raw.githubusercontent.com/EISEN0516/nodeseek-pro-userscript/main/docs/images/nodeseek-max-isen-icon.png
-// @updateURL     https://raw.githubusercontent.com/EISEN0516/nodeseek-pro-userscript/main/Nodeseek%20Pro.user.js
-// @downloadURL   https://raw.githubusercontent.com/EISEN0516/nodeseek-pro-userscript/main/Nodeseek%20Pro.user.js
+// @updateURL     https://raw.githubusercontent.com/tonly6679-star/nodeseek-pro-userscript/main/Nodeseek%20Pro.user.js
+// @downloadURL   https://raw.githubusercontent.com/tonly6679-star/nodeseek-pro-userscript/main/Nodeseek%20Pro.user.js
 // @match        *://www.nodeseek.com/*
 // @match        *://nodeseek.com/*
 // @match        *://www.deepflood.com/*

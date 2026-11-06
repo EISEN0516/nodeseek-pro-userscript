@@ -1,6 +1,11 @@
-# Nodeseek Max-iSen
+# Nodeseek Max-iSen (自定义过滤增强版)
 
-用于增强 NodeSeek/DeepFlood 论坛浏览体验的 Tampermonkey 用户脚本，重点提供抽奖参与状态、抽奖提醒与开奖结果通知，以及站内 PM/TG 快捷联系。
+> [!NOTE]
+> **开源声明与上游贡献**：
+> 本项目基于原作者 [EISEN0516/nodeseek-pro-userscript](https://github.com/EISEN0516/nodeseek-pro-userscript) 进行二次开发与增强。
+> 本分支所重构与增强的「低等级内容屏蔽（支持真实作者等级过滤、全局与关键词双模式）」功能已向上游原作者提交 Pull Request：[PR #1](https://github.com/EISEN0516/nodeseek-pro-userscript/pull/1)。
+
+用于增强 NodeSeek/DeepFlood 论坛浏览体验的 Tampermonkey 用户脚本，重点提供低等级内容屏蔽、抽奖参与状态、抽奖提醒与开奖结果通知，以及站内 PM/TG 快捷联系。
 
 - [GreasyFork 安装页面](https://greasyfork.org/zh-CN/scripts/588182-nodeseek-max-isen)
 - [GreasyFork 代码页面](https://greasyfork.org/zh-CN/scripts/588182-nodeseek-max-isen/code)
